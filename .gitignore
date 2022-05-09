@@ -1,0 +1,12 @@
+.idea
+results
+run2.sh
+script2.py
+makepassword.py
+send_email.py
+
+script/active/all 2.sh
+script/active/all_adapt.sh
+script/active/all_eval.sh
+script/active/all_src_gen.sh
+
