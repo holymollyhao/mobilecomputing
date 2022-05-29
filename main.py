@@ -263,9 +263,10 @@ def main():
                                                             test_split=0,
                                                             separate_domains=False, is_src=False,
                                                             num_source=conf.args.num_source)
-
-        learner = learner_method(model, tensorboard=tensorboard, source_dataloader=source_data_loader[:int(len(source_data_loader) * 0.8)],
-                                 target_dataloader=target_data_loader[int(len(source_data_loader) * 0.8):], write_path=log_path)
+        print(source_data_loader)
+        print(len(source_data_loader))
+        learner = learner_method(model, tensorboard=tensorboard, source_dataloader=source_data_loader,
+                                 target_dataloader=target_data_loader, write_path=log_path)
 
 
 
@@ -288,7 +289,7 @@ def main():
     elif conf.args.method == 'Src_Tgt':
 
         print('##############Source Data Loading...##############')
-        source_data_loader = data_loader.domain_data_loader(conf.args.dataset, conf.args.src,
+        source_data_loader = data_loader.domain_data_loader(conf.args.dataset, conf.args.tgt,
                                                             conf.args.opt['file_path'],
                                                             batch_size=conf.args.opt['batch_size'],
                                                             valid_split=0,

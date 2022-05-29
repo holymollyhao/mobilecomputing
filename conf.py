@@ -5,7 +5,7 @@ args = None
 
 DogwalkOpt = {
     'name': 'dogwalk',
-    'batch_size': 64,
+    'batch_size': 16,
     'seq_len': 50,
     'input_dim': 3,
 
@@ -13,17 +13,41 @@ DogwalkOpt = {
     'weight_decay': 0.0005,
 
     'momentum': 0.9,
-    'file_path': './dataset/dog_walk_winsize_50_stdscale_labelasstring.csv',
+    'file_path': './dataset/dog_walk_winsize_50_train_valid_split_std_acc.csv',
+    # 'file_path': './dataset/dog_walk_winsize_50_train_valid_split_minmax_acc.csv',
 
-    'classes': ['not walking', 'stationary', 'walking', 'running'],
-    'num_class': 4,
+    'classes': ['ambiguous', 'not walking', 'stationary', 'walking', 'running'],
+    'num_class': 5,
 
     # 22 users
-    'users': ['user0'],
-
-    'src_domains': ['user0'],
+    'users': ['user1_train', 'user1_test', 'user2_train', 'user2_test', 'user3_train', 'user3_test'],
+    # 1 : black dog
+    # 2 : yewon
+    # 3 : yewon
+    # 4 : enormous
+    'src_domains': [
+        'user1_train',
+        'user1_test',
+        'user2_train',
+        'user2_test',
+        'user3_train',
+        'user3_test',
+        'user4_train',
+        'user4_test',
+        'user5_train',
+        'user5_test'
+    ],
     'tgt_domains': [
-        'user0',
+        'user1_train',
+        'user1_test',
+        'user2_train',
+        'user2_test',
+        'usesr3_train',
+        'user3_test'
+        'user4_train',
+        'user4_test',
+        'user5_train',
+        'user5_test'
     ],
 }
 

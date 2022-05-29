@@ -44,7 +44,7 @@ class Net(nn.Module):
             nn.BatchNorm1d(64),
             nn.MaxPool1d(2),
         )
-        self.fc = nn.Linear(feature_flatten_dim, conf.HARTHOpt['num_class'])
+        self.fc = nn.Linear(feature_flatten_dim, conf.DogwalkOpt['num_class'])
 
     def forward(self, input):
         out = self.feature(input)
@@ -97,7 +97,7 @@ class Class_Classifier(nn.Module):
         super(Class_Classifier, self).__init__()
 
         self.class_classifier = nn.Sequential(
-            nn.Linear(feature_flatten_dim, conf.HARTHOpt['num_class']))
+            nn.Linear(feature_flatten_dim, conf.DogwalkOpt['num_class']))
 
     def forward(self, input):
         out = self.class_classifier(input)
@@ -216,7 +216,7 @@ class Class_Classifier_DSBN(nn.Module):
         super(Class_Classifier_DSBN, self).__init__()
 
         self.class_classifier = nn.Sequential(
-            nn.Linear(feature_flatten_dim, conf.HARTHOpt['num_class']))
+            nn.Linear(feature_flatten_dim, conf.DogwalkOpt['num_class']))
 
     def forward(self, input, domain):
         out = self.class_classifier(input)
@@ -230,7 +230,7 @@ hidden_size = 128
 class RandomLayer(nn.Module):
     def __init__(self):
         super(RandomLayer, self).__init__()
-        self.input_dim_list = [feature_flatten_dim, conf.HARTHOpt["num_class"]]
+        self.input_dim_list = [feature_flatten_dim, conf.DogwalkOpt["num_class"]]
         self.input_num = len(input_dim_list)
         self.output_dim = 1024
         self.random_matrix = [torch.randn(self.input_dim_list[i], self.output_dim) for i in range(self.input_num)]
@@ -250,7 +250,7 @@ class RandomLayer(nn.Module):
 class AdversarialNetwork(nn.Module):
     def __init__(self, lr_mult=10, decay_mult=2):
         super(AdversarialNetwork, self).__init__()
-        self.ad_layer1 = nn.Linear(feature_flatten_dim * conf.HARTHOpt["num_class"], hidden_size)
+        self.ad_layer1 = nn.Linear(feature_flatten_dim * conf.DogwalkOpt["num_class"], hidden_size)
         # self.ad_layer2 = nn.Linear(hidden_size, hidden_size)
         self.ad_layer3 = nn.Linear(hidden_size, 1)
         self.relu1 = nn.ReLU()

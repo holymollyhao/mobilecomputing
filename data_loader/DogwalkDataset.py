@@ -106,8 +106,8 @@ class DogwalkDataset(torch.utils.data.Dataset):
         self.kshot_datasets = []  # list of dataset per each domain
 
         for idx in range(max(len(self.df) // WIN_LEN, 0)):
-            domain = self.df.iloc[idx * WIN_LEN, 6]
-            class_label = self.df.iloc[idx * WIN_LEN, 5]
+            domain = self.df.iloc[idx * WIN_LEN, 5]
+            class_label = self.df.iloc[idx * WIN_LEN, 4]
             domain_label = self.domains.index(domain)
             feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 1:4].values
             # feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 0:54].values
@@ -151,7 +151,7 @@ class DogwalkDataset(torch.utils.data.Dataset):
         return self.datasets
 
     def class_to_number(self, label):
-        dic = {'not walking': 0, 'stationary': 1, 'walking': 2, 'running': 3}
+        dic = {'ambiguous' : 0, 'not walking': 1, 'stationary': 2, 'walking': 3, 'running': 4}
         return dic[label]
 
     def __getitem__(self, idx):
