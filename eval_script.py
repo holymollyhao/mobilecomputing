@@ -158,7 +158,7 @@ def parse_arguments(argv):
 
     parser.add_argument('--regex', type=str, default='', help='train condition regex')
     parser.add_argument('--directory', type=str, default='',
-                        help='which directory to search through? ex: ichar/FT_FC')
+                        help='which directory to search through?')
     parser.add_argument('--eval_type', type=str, default='avg_acc',
                         help='what type of evaluation? in [result, log, estimation, dtw, avg_acc]')
 

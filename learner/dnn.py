@@ -61,10 +61,7 @@ class DNN():
 
         self.target_dataloader = target_dataloader
 
-        if conf.args.dataset in ['cifar10', 'cifar100', 'vlcs', 'officehome', 'pacs'] and conf.args.tgt_train_dist == 0:
-            self.tgt_train_dist = 4  # Dirichlet is default for non-real-distribution data
-        else:
-            self.tgt_train_dist = conf.args.tgt_train_dist
+        self.tgt_train_dist = conf.args.tgt_train_dist
         self.target_data_processing()
 
         self.write_path = write_path
