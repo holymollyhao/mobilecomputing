@@ -15,9 +15,6 @@ from tensorboard_logger import Tensorboard
 
 import torchvision
 
-from robustbench.model_zoo.enums import ThreatModel
-from robustbench.utils import load_model
-
 
 
 def get_path():
@@ -108,7 +105,7 @@ def main():
     else:
         raise NotImplementedError
 
-    if conf.args.method in ['Src', 'TENT', 'T3A', 'LAME', 'LAME_vote', 'TENT_vote', 'LAME_vote_gt']:
+    if conf.args.method in ['Src', 'TENT', 'T3A', 'LAME', 'LAME_vote', 'TENT_vote']:
 
         '''
         src_train = source_data_loader['train'].dataset

@@ -1,6 +1,6 @@
 cnt=0
 for method in Src; do #TENT LAME LAME_vote TENT_vote
-  for i in 3; do
+  for i in 1 2 3 4 5; do
     for dist in 0; do
         dist=$dist
         update_every_x=16
