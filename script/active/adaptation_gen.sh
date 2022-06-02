@@ -1,4 +1,4 @@
-DATE="220602-cleaned_ver"
+DATE="RESULTS"
 cnt=0
 for method in LAME_vote; do #TENT LAME LAME_vote TENT_vote
   for i in 1 2 3 4 5; do

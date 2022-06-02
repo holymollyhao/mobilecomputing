@@ -1,6 +1,6 @@
 cores=30
 mkdir eval_logs
-LOG_SUFFIX="220602-cleaned_ver"
+LOG_SUFFIX="RESULTS"
 
 for dataset in dogwalk_all_win5; do
   for method in Src LAME_vote; do
