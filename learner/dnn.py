@@ -79,28 +79,8 @@ class DNN():
         if conf.args.load_checkpoint_path:  # false if conf.args.load_checkpoint_path==''
             self.load_checkpoint(conf.args.load_checkpoint_path)
 
-
-        ##########################################################
-
-
-
-
-
-        # init criterions, optimizers, scheduler
-        if conf.args.method == 'Src' and conf.args.dataset in ['cifar10','cifar100', 'harth', 'reallifehar', 'extrasensory']:
-
-            self.optimizer = torch.optim.SGD(
-                              self.net.parameters(),
-                              conf.args.opt['learning_rate'],
-                              momentum=conf.args.opt['momentum'],
-                              weight_decay=conf.args.opt['weight_decay'],
-                              nesterov=True)
-
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=conf.args.epoch * len(self.source_dataloader['train']))
-
-        else:
-            self.optimizer = optim.Adam(self.net.parameters(), lr=conf.args.opt['learning_rate'],
-                                    weight_decay=conf.args.opt['weight_decay'])
+        self.optimizer = optim.Adam(self.net.parameters(), lr=conf.args.opt['learning_rate'],
+                                weight_decay=conf.args.opt['weight_decay'])
 
         self.class_criterion = nn.CrossEntropyLoss()
         self.freeze_layers()  # this will call overriden method
@@ -391,21 +371,9 @@ class DNN():
             for batch_idx, labeled_data in tqdm.tqdm(enumerate(self.source_dataloader['train']), total=num_iter):
                 feats, cls, _ = labeled_data
                 feats, cls = feats.to(device), cls.to(device)
-
-                if torch.isnan(feats).any() or torch.isinf(feats).any():  # For reallifehar debugging
-                    print('invalid input detected at iteration ', batch_idx)
-                    exit(1)
-                # compute the feature
                 preds = self.net(feats)
-                if torch.isnan(preds).any() or torch.isinf(preds).any():  # For reallifehar debugging
-                    print('invalid input detected at iteration ', batch_idx)
-                    exit(1)
                 class_loss = self.class_criterion(preds, cls)
                 class_loss_sum += float(class_loss * feats.size(0))
-
-                if torch.isnan(class_loss).any() or torch.isinf(class_loss).any():  # For reallifehar debugging
-                    print('invalid input detected at iteration ', batch_idx)
-                    exit(1)
 
                 if not conf.args.log_percentile:
                     self.optimizer.zero_grad()
@@ -416,8 +384,6 @@ class DNN():
                     for pred in preds:
                         self.conf_list.append(
                             float(torch.nn.functional.softmax(pred, dim=0).max().cpu()))
-                if conf.args.dataset in ['cifar10', 'cifar100', 'harth', 'reallifehar', 'extrasensory']:
-                    self.scheduler.step()
 
             if conf.args.log_percentile:
                 print(self.conf_list)
