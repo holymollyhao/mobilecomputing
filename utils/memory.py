@@ -366,11 +366,6 @@ class CBRS_debug():  # Store original label for debugging
 
 
 
-
-
-
-
-# TODO: change largest, full algorithm
 class CBFIFO_debug():  # Store original label for debugging
 
     def __init__(self, capacity):
@@ -444,91 +439,19 @@ class CBFIFO_debug():  # Store original label for debugging
                 largest_indices.append(i)
         return largest_indices
 
-    ''' # low loss sorting
     def remove_instance(self, cls):
         largest_indices = self.get_largest_indices()
         if cls not in largest_indices: #  instance is stored in the place of another instance that belongs to the largest class
             largest = random.choice(largest_indices)  # select only one largest class
-
-            tgt_idx = -1
-            min_loss = 99999
-            for i in range(len(self.data[largest][-1])):
-                loss = self.data[largest][-1][i]
-                if loss < min_loss:
-                    min_loss = loss
-                    tgt_idx = i
-
-
-            for dim in self.data[largest]:
-                dim.pop(tgt_idx)
-        else:# replaces a randomly selected stored instance of the same class
-
-            tgt_idx = -1
-            min_loss = 99999
-            for i in range(len(self.data[cls][-1])):
-                loss = self.data[cls][-1][i]
-                if loss < min_loss:
-                    min_loss = loss
-                    tgt_idx = i
-
-            for dim in self.data[cls]:
-                dim.pop(tgt_idx)
-        return True
-    '''
-
-    ''' high loss sorting
-    def remove_instance(self, cls):
-        largest_indices = self.get_largest_indices()
-        if cls not in largest_indices: #  instance is stored in the place of another instance that belongs to the largest class
-            largest = random.choice(largest_indices)  # select only one largest class
-
-            tgt_idx = -1
-            max_loss = -99999
-            for i in range(len(self.data[largest][-1])):
-                loss = self.data[largest][-1][i]
-                if loss > max_loss:
-                    max_loss = loss
-                    tgt_idx = i
-
-
-            for dim in self.data[largest]:
-                dim.pop(tgt_idx)
-        else:# replaces a randomly selected stored instance of the same class
-
-            tgt_idx = -1
-            max_loss = -99999
-            for i in range(len(self.data[cls][-1])):
-                loss = self.data[cls][-1][i]
-                if loss > max_loss:
-                    max_loss = loss
-                    tgt_idx = i
-
-            for dim in self.data[cls]:
-                dim.pop(tgt_idx)
-        return True
-    '''
-    # ''' # FIFO
-    def remove_instance(self, cls):
-        largest_indices = self.get_largest_indices()
-        if cls not in largest_indices: #  instance is stored in the place of another instance that belongs to the largest class
-            largest = random.choice(largest_indices)  # select only one largest class
-            # tgt_idx = random.randrange(0, len(self.data[largest][0]))  # target index to remove
             tgt_idx = 0
             for dim in self.data[largest]:
                 dim.pop(tgt_idx)
         else:# replaces a randomly selected stored instance of the same class
-            # m_c = self.get_occupancy_per_class()[cls]
-            # n_c = self.counter[cls]
-            # u = random.uniform(0, 1)
-            # if u <= m_c / n_c:
-            # tgt_idx = random.randrange(0, len(self.data[cls][0]))  # target index to remove
             tgt_idx = 0
             for dim in self.data[cls]:
                 dim.pop(tgt_idx)
         return True
-    # '''
 
-# TODO: change largest, full algorithm
 class CBReservoir_debug(CBFIFO_debug):  # Store original label for debugging
 
     def __init__(self, capacity):

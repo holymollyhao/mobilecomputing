@@ -5,6 +5,8 @@ import numpy as np
 
 import conf
 
+# device = torch.device("cuda:{:d}".format(conf.args.gpu_idx) if torch.cuda.is_available() else "cpu")
+
 if conf.args.dataset == 'dogwalk':
     opt = conf.DogwalkOpt
 elif conf.args.dataset == 'dogwalk_win100':
@@ -16,8 +18,16 @@ elif conf.args.dataset == 'dogwalk_all_win100':
 elif conf.args.dataset == 'dogwalk_all_win5':
     opt = conf.DogwalkAll_WIN5_Opt
 
-feature_flatten_dim = 64
-input_channel_dim = opt['input_dim']
+##### output feature vector size of encoder
+feature_flatten_dim = 100
+# feature_flatten_dim = 64
+# feature_flatten_dim = 32 #win 50 x seq 5
+# feature_flatten_dim = 64
+
+##### num of channels
+# input_channel_dim = 6 # 32,64,128
+# input_channel_dim = 161 #win 50 x seq 5
+input_channel_dim = opt['input_dim']  # back or thigh
 
 
 class Net(nn.Module):
@@ -25,25 +35,32 @@ class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.feature = nn.Sequential(
-            # win 50
+            # win 400
             nn.Conv1d(input_channel_dim, 32, kernel_size=16, stride=2),
             nn.ReLU(True),
             nn.BatchNorm1d(32),
 
-            nn.Conv1d(32, 32, kernel_size=6),
+            nn.Conv1d(32, 32, kernel_size=16, stride=2),
             nn.ReLU(True),
             nn.BatchNorm1d(32),
 
-            nn.Conv1d(32, 64, kernel_size=6),
+            nn.Conv1d(32, 64, kernel_size=6, stride=2),
             nn.ReLU(True),
             nn.BatchNorm1d(64),
 
-            nn.Conv1d(64, 64, kernel_size=6),
+            nn.Conv1d(64, 64, kernel_size=6, stride=2),
             nn.ReLU(True),
             nn.BatchNorm1d(64),
-            nn.MaxPool1d(2),
+
+            nn.Conv1d(64, 128, kernel_size=6, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm1d(128),
+
+            nn.Conv1d(128, 128, kernel_size=6, stride=2),
+            nn.ReLU(True),
+            nn.BatchNorm1d(128),
         )
-        self.fc = nn.Linear(feature_flatten_dim, conf.DogwalkOpt['num_class'])
+        self.fc = nn.Linear(feature_flatten_dim, 4)
 
     def forward(self, input):
         out = self.feature(input)
@@ -163,12 +180,26 @@ def init_weights(m):
         nn.init.zeros_(m.bias)
 
 
+
 hidden_size = 128
 
 
 if __name__ == '__main__':
+    # fe = Extractor()
+    # cc = Class_Classifier()
+    # print(sum(p.numel() for p in fe.parameters() if p.requires_grad)+sum(p.numel() for p in cc.parameters() if p.requires_grad))
+    #
+    # feat = fe(torch.zeros((10,6,256)))
+    # print(feat.shape)
+    # out = cc(feat)
+    # print(out.shape)
+    # pass
+
     import torch
     import torchvision
+
+    # dummy_input_fe = torch.zeros((64, 6, 32))
+    # dummy_input_fe = torch.zeros((64, 161, 5))
     dummy_input_fe = torch.zeros((64, 3, 50))
 
     fe = Extractor()

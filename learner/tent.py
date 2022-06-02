@@ -1,5 +1,5 @@
 import conf
-from .tt_whole import TT_WHOLE
+from .dnn import DNN
 from torch.utils.data import DataLoader
 
 from utils.loss_functions import *
@@ -7,7 +7,7 @@ from utils.loss_functions import *
 device = torch.device("cuda:{:d}".format(conf.args.gpu_idx) if torch.cuda.is_available() else "cpu")
 
 
-class TENT(TT_WHOLE):
+class TENT(DNN):
     def __init__(self, *args, **kwargs):
         super(TENT, self).__init__(*args, **kwargs)
 
@@ -22,9 +22,13 @@ class TENT(TT_WHOLE):
             if isinstance(module, nn.BatchNorm1d) or isinstance(module, nn.BatchNorm2d):
                 # https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm1d.html
                 # TENT: force use of batch stats in train and eval modes: https://github.com/DequanWang/tent/blob/master/tent.py
-                module.track_running_stats = False
-                module.running_mean = None
-                module.running_var = None
+                if conf.args.use_learned_stats:
+                    module.track_running_stats = True
+                    module.momentum = conf.args.bn_momentum
+                else:
+                    module.track_running_stats = False
+                    module.running_mean = None
+                    module.running_var = None
 
                 module.weight.requires_grad_(True)
                 module.bias.requires_grad_(True)
@@ -49,6 +53,8 @@ class TENT(TT_WHOLE):
         current_sample = feats[current_num_sample - 1], cls[current_num_sample - 1], dls[current_num_sample - 1]
         self.mem.add_instance(current_sample)
 
+        if conf.args.use_learned_stats: #batch-free inference
+            self.evaluation_online(current_num_sample, '', [[current_sample[0]], [current_sample[1]], [current_sample[2]]])
 
         if current_num_sample % conf.args.update_every_x != 0:  # train only when enough samples are collected
             if not (current_num_sample == len(self.target_train_set[
@@ -59,7 +65,8 @@ class TENT(TT_WHOLE):
 
 
         # Evaluate with a batch
-        self.evaluation_online(current_num_sample, '', self.mem.get_memory())
+        if not conf.args.use_learned_stats: #batch-based inference
+            self.evaluation_online(current_num_sample, '', self.mem.get_memory())
 
 
 
@@ -82,24 +89,13 @@ class TENT(TT_WHOLE):
                                  drop_last=False, pin_memory=False)
 
         entropy_loss = HLoss()
-        # kd_loss = KDLoss()
 
         for e in range(conf.args.epoch):
 
             for batch_idx, (feats,) in enumerate(data_loader):
                 feats = feats.to(device)
 
-                if conf.args.dsbn:
-                    assert (dls.tolist().count(int(dls[0])) == len(dls)), 'exists different domains!'
-                    assert (dls[0] == 0), 'finally sth different! - inside train_online'
-                    feature_of_labeled_data = self.feature_extractor(feats, self.num_src_domains)
-                    preds_of_data = self.class_classifier(feature_of_labeled_data, self.num_src_domains)
-                else:
-                    if conf.args.dataset in ['kitti_mot', 'kitti_mot_test']: #TODO: batch size 20, requires 3 grad steps, is it efficient?
-                        preds_of_data = self.net(feats)
-                    else:
-
-                        preds_of_data = self.net(feats)
+                preds_of_data = self.net(feats)
 
                 if isinstance(preds_of_data, list): #kitti
                     loss = 0

@@ -10,67 +10,12 @@ from sklearn.preprocessing import label_binarize
 from scipy.spatial.distance import cdist
 import math
 import conf
-import models.DSA_model
 from .dnn import DNN
-from .tt_whole import TT_WHOLE
 from torch.utils.data import DataLoader
 
 from utils.loss_functions import *
 
 device = torch.device("cuda:{:d}".format(conf.args.gpu_idx) if torch.cuda.is_available() else "cpu")
-
-
-# class SupportSet():
-#     def __init__(self, num_class, init_weights):
-#
-#         self.sup_set = [
-#             [init_weights[i]]
-#             for i in range(len(init_weights))
-#         ]
-#
-#         # self.mem_size_list setting
-#         self.mem_size_list = [int(conf.args.memory_size) // num_class for i in range(num_class)]
-#         for i in range(int(conf.args.memory_size) % num_class):
-#             self.mem_size_list[i] += 1
-#
-#         self.num_class = num_class
-#
-#     def append(self, data):
-#         assert len(data) == 3, 'data must be consisted of 3 elements'
-#
-#         # data must be a list of [feature_tensor, classfier_output, entropy]
-#         feature_tensor, classfier_output, entropy = tuple(data)
-#         pseudo_label = torch.argmax(classfier_output, axis=-1)
-#
-#         # append, then remove until it fits the memory requirement
-#         self.sup_set[int(pseudo_label)].append(data)
-#         while len(self.sup_set[int(pseudo_label)]) > self.mem_size_list[int(pseudo_label)]:
-#             self.remove(int(pseudo_label))
-#
-#     def remove(self, index):
-#         self.sup_set[index] = sorted(self.sup_set[index], key=lambda data: float(data[2]))
-#         self.sup_set[index].pop()
-#
-#     def __getitem__(self, item):
-#         return self.sup_set[item]
-#
-#     def support(self):
-#         sup_list = []
-#         for class_index in range(self.num_class):
-#             for iter_index in range(len(self.sup_set[class_index])):
-#                 sup_list.append(self.sup_set[class_index][iter_index][0])
-#         return torch.stack(sup_list)
-#
-#     def label(self):
-#         label_list = []
-#         for class_index in range(self.num_class):
-#             for iter_index in range(len(self.sup_set[class_index])):
-#                 elem = self.sup_set[class_index][iter_index][1]
-#                 label_list.append(
-#                     elem
-#                 )
-#         return torch.stack(label_list)
-
 
 class T3A(DNN):
     def __init__(self, *args, **kwargs):

@@ -19,21 +19,32 @@ from torch.utils.data import DataLoader
 import copy
 import json
 import pickle
-from utils import memory
-from utils.utils import *
-from utils.parse_config import *
-from models.KITTI_MOT_model import load_model
 from torch.optim.lr_scheduler import StepLR
 import os
 from collections import OrderedDict
-from utils import iabn
+from utils import memory
 from utils.logging import *
-from utils.bn_remover import *
 import torchvision
 
 device = torch.device("cuda:{:d}".format(conf.args.gpu_idx) if torch.cuda.is_available() else "cpu")
 torch.cuda.set_device(
     conf.args.gpu_idx)  # this prevents unnecessary gpu memory allocation to cuda:0 when using estimator
+
+class l2_distance_list():
+    def __init__(self, length):
+        self.data = []
+        self.max_len = length
+    def append(self, item):
+        self.data.append(item)
+        if len(self.data) > self.max_len:
+            self.data = self.data[1:]
+        self.data.append(item)
+    def __getitem__(self, item):
+        return self.data[item]
+    def __len__(self):
+        return len(self.data)
+    def clear(self):
+        self.data = []
 
 
 class DNN():
@@ -62,36 +73,7 @@ class DNN():
         self.conf_list = []
 
         # Load model
-        if 'resnet' in conf.args.model:
-            num_feats = model.fc.in_features
-            model.fc = nn.Linear(num_feats, conf.args.opt['num_class']) # match class number
-            self.net = model
-        else:
-            self.net = model.Net()
-
-
-        # IABN
-        if conf.args.iabn:
-            iabn.convert_iabn(self.net)
-
-        # Fusing
-        if conf.args.fuse_model: #TODO: is the latter required?
-            if conf.args.model.startswith('resnet50'):
-                self.net = remove_bn_resnet50(self.net)
-                self.freeze_bn()
-            elif conf.args.model.startswith('wideresnet28-10'):
-                self.net = remove_bn_wideresent(self.net)
-                self.freeze_bn()
-            elif conf.args.model.startswith('resnext29'):
-                self.net = remove_bn_resnext29(self.net)
-                self.freeze_bn()
-            elif conf.args.model.startswith('HARTH_model'):
-                self.net = remove_bn_harth(self.net)
-                self.freeze_bn()
-            else:
-                raise NotImplementedError
-
-
+        self.net = model.Net()
         self.net.to(device)
 
         if conf.args.load_checkpoint_path:  # false if conf.args.load_checkpoint_path==''
@@ -141,20 +123,12 @@ class DNN():
             self.mem = memory.CBReservoir_debug(capacity=conf.args.memory_size)
 
         self.json = {}
-        self.l2_distance = []
-
-
-        # add hooks to BN layers
-        if conf.args.log_bn_stats:
-            num_bn_layers = 0
-            for layer in self.net.modules():
-                if isinstance(layer, torch.nn.BatchNorm1d):
-                    num_bn_layers += 1
-            self.hook_logger = LogBNStats(self.write_path, num_bn_layers)
-            for layer in self.net.modules():
-                if isinstance(layer, torch.nn.BatchNorm1d):
-                    print("This may batchnorms")
-                    layer.register_forward_hook(self.hook_logger)
+        self.entropy = []
+        self.bef_cls = -10
+        self.bef_gt_cls = -10
+        self.bef_feat_list = l2_distance_list(32)
+        self.bef_feat = []
+        self.l2_dist_list = []
 
     def freeze_bn(self): #TODO: what is this?
         for m in self.net.modules():
@@ -167,21 +141,17 @@ class DNN():
                 param.requires_grad = False
 
     def target_data_processing(self):
-        # if conf.args.method in ['FT_FC', 'FT_all', 'SHOT'] and self.is_preliminary:
 
         features = []
         cl_labels = []
         do_labels = []
 
-        for b_i, (feat, cl, dl) in enumerate(self.target_dataloader['train']):#must be loaded from dataloader, due to transform in the __getitem__()
+        for b_i, (feat, cl, dl) in enumerate(self.target_dataloader['train']):
             features.append(feat.squeeze(0))# batch size is 1
             cl_labels.append(cl.squeeze())
             do_labels.append(dl.squeeze())
 
         tmp = list(zip(features, cl_labels, do_labels))
-        # for _ in range(
-        #         conf.args.nsample):  # this will make more diverse training samples under a fixed seed, when rand_nsample==True. Otherwise, it will just select first k samples always
-        #     random.shuffle(tmp)
 
         features, cl_labels, do_labels = zip(*tmp)
         features, cl_labels, do_labels = list(features), list(cl_labels), list(do_labels)
@@ -210,7 +180,6 @@ class DNN():
                 result_cl_labels.append(cl_labels.pop(tgt_idx))
                 result_do_labels.append(do_labels.pop(tgt_idx))
 
-        # sorted distribution
         elif self.tgt_train_dist == 2:
             num_samples = conf.args.nsample if conf.args.nsample < len(features) else len(features)
             for _ in range(num_samples):
@@ -218,9 +187,6 @@ class DNN():
                 result_feats.append(features.pop(tgt_idx))
                 result_cl_labels.append(cl_labels.pop(tgt_idx))
                 result_do_labels.append(do_labels.pop(tgt_idx))
-
-            # sort
-            # result_cl_labels, result_feats, result_do_labels=zip(*sorted(zip(result_cl_labels, result_feats, result_do_labels)))
 
             indices = np.argsort(result_cl_labels)
 
@@ -321,20 +287,13 @@ class DNN():
                         result_cl_labels.extend([cl_labels[i] for i in idx])
                         result_do_labels.extend([do_labels[i] for i in idx])
                         sequence_stats.extend(list(np.repeat(cls, len(idx))))
-                        # sequence_stats.append((cls, len(idx)))
-            # np.random.shuffle(sequence_stats) # uniform distribution
 
-            # log statistics
-            # log_dirichlet_data_stats(dirichlet_numchunks, cl_labels_np, idx_batch, idx_batch_cls)
-
-            # trim data if num_sample is smaller than the original data size
             num_samples = conf.args.nsample if conf.args.nsample < len(result_feats) else len(result_feats)
             result_feats = result_feats[:num_samples]
             result_cl_labels = result_cl_labels[:num_samples]
             result_do_labels = result_do_labels[:num_samples]
 
         # TODO: manage num_target_train_set..
-        # if conf.args.online:
         remainder = len(result_feats) % conf.args.update_every_x  # drop leftover samples
         if remainder == 0:
             pass
@@ -352,14 +311,9 @@ class DNN():
                                      result_cl_labels,
                                      torch.stack(result_do_labels))
 
-        # self.target_support_remaining_set = (torch.stack(features), torch.stack(cl_labels), torch.stack(do_labels))
-
 
     def save_checkpoint(self, epoch, epoch_acc, best_acc, checkpoint_path):
-        if conf.args.fuse_model:
-            torch.save(self.net.state_dict(), checkpoint_path.rstrip('cp_last.pth.tar') + 'cp_last_fused.pth.tar')
-        else:
-            torch.save(self.net.state_dict(), checkpoint_path)
+        torch.save(self.net.state_dict(), checkpoint_path)
 
 
     def load_checkpoint(self, checkpoint_path):
@@ -389,8 +343,7 @@ class DNN():
         return loss_of_data, cm, errors
 
     def log_loss_results(self, condition, epoch, loss_avg):
-
-        # print loss
+        self.tensorboard.log_scalar(condition + '/loss_sum', loss_avg, epoch)
         print('{:s}: [epoch : {:d}]\tLoss: {:.6f} \t'.format(
             condition, epoch, loss_avg
         ))
@@ -398,12 +351,12 @@ class DNN():
         self.tensorboard.log_scalar(condition + '/loss_sum', loss_avg, epoch)
 
 
+
         return loss_avg
 
     def log_accuracy_results(self, condition, suffix, epoch, cm_class):
 
         assert (condition in ['valid', 'test'])
-        # assert (suffix in ['labeled', 'unlabeled', 'test'])
 
         class_accuracy = 100.0 * np.sum(np.diagonal(cm_class)) / np.sum(cm_class)
         self.tensorboard.log_scalar(condition + '/' + 'accuracy_class_' + suffix, class_accuracy, epoch)
@@ -421,8 +374,6 @@ class DNN():
 
         # setup models
 
-        # self.feature_extractor.train()
-        # self.class_classifier.train()
         self.net.train()
 
         class_loss_sum = 0.0
@@ -430,107 +381,48 @@ class DNN():
         total_iter = 0
 
         if conf.args.method in ['Src', 'Src_Tgt']:
-            if conf.args.src_sep:  # minibatchs from each source
-                num_iter = sum([len(dataloader['train']) for dataloader in self.source_dataloader])
+            num_iter = len(self.source_dataloader['train'])
+            total_iter += num_iter
 
-                total_iter += num_iter
-                for _ in tqdm.tqdm(range(num_iter), total=num_iter):
-                    domain_id = int(np.random.choice(range(self.num_src_domains), size=1))
-                    try:
-                        batch_i = next(self.source_iters[domain_id])
-                    except StopIteration:
-                        self.source_iters[domain_id] = iter(self.source_dataloader[domain_id]['train'])
-                        batch_i = next(self.source_iters[domain_id])
+            if conf.args.log_percentile:
+                assert conf.args.epoch == 1
+                self.net.eval()
 
-                    feats, cls, _ = batch_i
+            for batch_idx, labeled_data in tqdm.tqdm(enumerate(self.source_dataloader['train']), total=num_iter):
+                feats, cls, _ = labeled_data
+                feats, cls = feats.to(device), cls.to(device)
 
-                    feats, cls = feats.to(device), cls.to(device)
-                    if conf.args.dsbn:
-                        # compute the feature
-                        feature_of_labeled_data = self.feature_extractor(feats, domain_id)
-                        preds_of_data = self.class_classifier(feature_of_labeled_data, domain_id)
-                        class_loss_of_labeled_data = self.class_criterion(preds_of_data, cls)
-                    else:
-                        feature_of_labeled_data = self.feature_extractor(feats)
-                        class_loss_of_labeled_data, _, _ = self.get_loss_and_confusion_matrix(self.class_classifier,
-                                                                                              self.class_criterion,
-                                                                                              feature_of_labeled_data,
-                                                                                              cls)
+                if torch.isnan(feats).any() or torch.isinf(feats).any():  # For reallifehar debugging
+                    print('invalid input detected at iteration ', batch_idx)
+                    exit(1)
+                # compute the feature
+                preds = self.net(feats)
+                if torch.isnan(preds).any() or torch.isinf(preds).any():  # For reallifehar debugging
+                    print('invalid input detected at iteration ', batch_idx)
+                    exit(1)
+                class_loss = self.class_criterion(preds, cls)
+                class_loss_sum += float(class_loss * feats.size(0))
 
-                    class_loss = class_loss_of_labeled_data
-                    class_loss_sum += float(class_loss * feats.size(0))
+                if torch.isnan(class_loss).any() or torch.isinf(class_loss).any():  # For reallifehar debugging
+                    print('invalid input detected at iteration ', batch_idx)
+                    exit(1)
+
+                if not conf.args.log_percentile:
                     self.optimizer.zero_grad()
                     class_loss.backward()
                     self.optimizer.step()
-            else:  # minibatchs from mixed source
-                num_iter = len(self.source_dataloader['train'])
-                total_iter += num_iter
+                else:
+                    # print(len(preds))
+                    for pred in preds:
+                        self.conf_list.append(
+                            float(torch.nn.functional.softmax(pred, dim=0).max().cpu()))
+                if conf.args.dataset in ['cifar10', 'cifar100', 'harth', 'reallifehar', 'extrasensory']:
+                    self.scheduler.step()
 
-                if conf.args.log_percentile:
-                    assert conf.args.epoch == 1
-                    self.net.eval()
-
-                for batch_idx, labeled_data in tqdm.tqdm(enumerate(self.source_dataloader['train']), total=num_iter):
-                    feats, cls, _ = labeled_data
-                    feats, cls = feats.to(device), cls.to(device)
-
-                    # if torch.isnan(feats.mean()) or torch.isinf(feats.mean()): # For reallifehar debugging
-                    #     print('invalid input detected at iteration ', batch_idx)
-
-                    # compute the feature
-                    preds = self.net(feats)
-                    class_loss = self.class_criterion(preds, cls)
-                    class_loss_sum += float(class_loss * feats.size(0))
-                    if conf.args.dataset in ['cifar10', 'cifar100', 'harth', 'reallifehar', 'extrasensory']:
-                        self.scheduler.step()
-                        # print(self.optimizer.param_groups[0]['lr'])
-                    if not conf.args.log_percentile:
-                        self.optimizer.zero_grad()
-                        class_loss.backward()
-                        self.optimizer.step()
-                    else:
-                        print(len(preds))
-                        for pred in preds:
-                            self.conf_list.append(
-                                float(torch.nn.functional.softmax(pred, dim=0).max().cpu()))
-
-                if conf.args.log_percentile:
-                    print(self.conf_list.sort())
-                    print(f"percentile of current list is : {np.percentile(self.conf_list, [5, 95])}")
-
-        if conf.args.method in ['Tgt', 'Src_Tgt', 'FT_FC', 'FT_all']:
-
-            feats, cls, dls = self.target_train_set
-
-            if len(feats) == 1:  # avoid BN error
-                self.feature_extractor.eval()
-                self.class_classifier.eval()
-
-            dataset = torch.utils.data.TensorDataset(feats, cls, dls)
-            data_loader = DataLoader(dataset, batch_size=conf.args.opt['batch_size'],
-                                     shuffle=True,
-                                     drop_last=False, pin_memory=False)
-
-            num_iter = len(data_loader)
-            total_iter += num_iter
-
-            for batch_idx, labeled_data in enumerate(data_loader):
-                feats, cls, _ = labeled_data
-                feats, cls = feats.to(device), cls.to(device)
-                # compute the feature
-                feature_of_labeled_data = self.feature_extractor(feats)
-                # compute the class loss of feature_of_labeled_data
-                class_loss_of_labeled_data, _, _ = self.get_loss_and_confusion_matrix(self.class_classifier,
-                                                                                      self.class_criterion,
-                                                                                      feature_of_labeled_data,
-                                                                                      cls)
-
-                class_loss = class_loss_of_labeled_data
-                class_loss_sum += float(class_loss * feats.size(0))
-                self.optimizer.zero_grad()
-                class_loss.backward()
-                self.optimizer.step()
-
+            if conf.args.log_percentile:
+                print(self.conf_list)
+                print(self.conf_list.sort())
+                print(f"percentile of current list is : {np.percentile(self.conf_list, [5, 95])}")
         ######################## LOGGING #######################
 
         self.log_loss_results('train', epoch=epoch, loss_avg=class_loss_sum / total_iter)
@@ -578,10 +470,6 @@ class DNN():
 
         feats, cls, dls = self.mem.get_memory()
         feats, cls, dls = torch.stack(feats), torch.stack(cls), torch.stack(dls)
-        # feats, cls, dls = (
-        # feats[current_num_sample - conf.args.update_every_x - conf.args.memory_size: current_num_sample],
-        # cls[current_num_sample - conf.args.update_every_x - conf.args.memory_size: current_num_sample],
-        # dls[current_num_sample - conf.args.update_every_x - conf.args.memory_size: current_num_sample])
         print(len(feats))
 
         if len(feats) == 1:  # avoid BN error
@@ -601,22 +489,12 @@ class DNN():
             for batch_idx, labeled_data in enumerate(data_loader):
                 feats, cls, dls = labeled_data
                 feats, cls = feats.to(device), cls.to(device)
-
-                if conf.args.dsbn:
-                    # compute the feature
-                    assert (dls.tolist().count(int(dls[0])) == len(dls)), 'exists different domains!'
-                    assert (dls[0] == 0), 'finally sth different! - inside train_online'
-                    feature_of_labeled_data = self.feature_extractor(feats, self.num_src_domains)
-                    preds_of_data = self.class_classifier(feature_of_labeled_data, self.num_src_domains)
-                    class_loss = self.class_criterion(preds_of_data, cls)
-                else:
-                    feature_of_labeled_data = self.feature_extractor(feats)
-                    # compute the class loss of feature_of_labeled_data
-                    class_loss, _, _ = self.get_loss_and_confusion_matrix(self.class_classifier,
+                feature_of_labeled_data = self.feature_extractor(feats)
+                # compute the class loss of feature_of_labeled_data
+                class_loss, _, _ = self.get_loss_and_confusion_matrix(self.class_classifier,
                                                                           self.class_criterion,
                                                                           feature_of_labeled_data,
                                                                           cls)
-
                 class_loss_sum += float(class_loss * feats.size(0))
                 self.optimizer.zero_grad()
                 class_loss.backward()
@@ -642,26 +520,6 @@ class DNN():
         exec(f'self.{name}_file.write(write_string)')
         self.tensorboard.log_scalar(condition + '/' + name, value, epoch)
 
-    def draw_tsne(self, epoch):
-        feats, cls, _ = self.target_train_set
-        feats, cls = feats.to(device), cls.to(device)
-        # compute the feature
-        feature_of_labeled_data = self.feature_extractor(feats)
-
-        tsne = TSNE(n_components=2, verbose=1, random_state=conf.args.seed)
-        _, cls, _ = self.target_train_set
-        z = tsne.fit_transform(feature_of_labeled_data.cpu().detach().numpy())
-        df = pd.DataFrame()
-        df["y"] = cls
-        df["d1"] = z[:, 0]
-        df["d2"] = z[:, 1]
-
-        sns.scatterplot(x="d1", y="d2", hue=df.y.tolist(),
-                        palette=sns.color_palette("hls", conf.args.opt['num_class']),
-                        data=df).set(title=f'Epoch:{epoch}')
-
-        self.tensorboard.log_tsne("Test" + '_tsne', global_step=epoch)
-
     def evaluation(self, epoch, condition):
 
         #########################################################################################################
@@ -685,49 +543,20 @@ class DNN():
             class_loss_of_test_data = self.class_criterion(preds, tgt_cls)
             y_pred = preds.max(1, keepdim=False)[1]
             class_cm_test_data = confusion_matrix(tgt_cls.cpu(), y_pred.cpu(), labels=labels)
-
-
-            ### for f1score & auroc
             y_true_sum = np.concatenate((y_true_sum, tgt_cls.cpu().numpy()), axis=0)
             if y_pred_sum is None:
                 y_pred_sum = y_pred.cpu().numpy()
             else:
                 y_pred_sum = np.concatenate((y_pred_sum, y_pred.cpu().numpy()), axis=0)
-            ###
 
-        print('{:s}: [epoch : {:d}]\tLoss: {:.6f} \t'.format(
-            condition, epoch, class_loss_of_test_data
-        ))
+
         class_accuracy = 100.0 * np.sum(np.diagonal(class_cm_test_data)) / np.sum(class_cm_test_data)
         print('[epoch:{:d}] {:s} {:s} class acc: {:.3f}'.format(epoch, condition, 'test', class_accuracy))
         self.tensorboard.log_confusion_matrix(condition + '_accuracy_class_' + 'test', class_cm_test_data,
                                               conf.args.opt['classes'], epoch)
 
-        ### F1 Score ###
-        # f1 = f1_score(y_true_sum, y_pred_sum.argmax(axis=1),
-        #               average='macro')
-        # Weighted: "A Novel Distribution-Embedded Neural Network for Sensor-Based Activity Recognition" -
-        # https://towardsdatascience.com/micro-macro-weighted-averages-of-f1-score-clearly-explained-b603420b292f
-        # "In general, if you are working with an imbalanced dataset where all classes are equally important, using the macro average would be a good choice as it treats all classes equally."
-        # "If you have an imbalanced dataset but want to assign greater contribution to classes with more examples in the dataset, then the weighted average is preferred."
-
-        ### AUROC ###
-        # if conf.args.dataset in ['gait']:
-        #     # binary classification case
-        #     y_pred_sum_torch = torch.from_numpy(y_pred_sum)
-        #     sm = torch.nn.Softmax(dim=1)
-        #     probabilities = sm(y_pred_sum_torch)
-        #     probabilities = probabilities.detach().cpu().numpy()  # convert back to numpy array
-        #     macro_roc_auc_ovo = roc_auc_score(y_true_sum, probabilities[:, 1], average='weighted')
-        # else:
-        #     y_true_sum_onehot = label_binarize(y_true_sum, classes=[c for c in range(conf.args.opt['num_class'])])
-        #     macro_roc_auc_ovo = roc_auc_score(y_true_sum_onehot, y_pred_sum, multi_class="ovo",
-        #                                       average="weighted")
-
         self.previous_test_class_accuracy = class_accuracy
         self.previous_test_class_loss_of_test_data = class_loss_of_test_data
-        # self.previous_test_f1 = f1
-        # self.previous_test_macro_roc_auc_ovo = macro_roc_auc_ovo
 
         self.logger('accuracy', class_accuracy, epoch, condition)
         self.logger('loss', class_loss_of_test_data, epoch, condition)
@@ -756,7 +585,8 @@ class DNN():
             feats, cls, dls = (torch.stack(features), torch.stack(cl_labels), torch.stack(do_labels))
             feats, cls, dls = feats.to(device), cls.to(device), dls.to(device)
 
-            y_pred = self.net(feats)
+            raw_y_pred = self.net(feats)
+            y_pred = raw_y_pred
 
             labels = [i for i in range(len(conf.args.opt['classes']))]
 
@@ -766,57 +596,71 @@ class DNN():
 
             y_pred = y_pred.max(1, keepdim=False)[1]
 
-            if conf.args.method == 'VOTE':
-                pred_counter = [0] * conf.args.opt['num_class']
-                for p in y_pred:
-                    pred_counter[p] += 1
-                y_pred = torch.zeros_like(y_pred) + torch.tensor(pred_counter.index(max(pred_counter)))
+            if '_vote' in conf.args.method:
+                if 'TENT' not in conf.args.method:
+                    raw_y_pred = self.batch_evaluation(feats)
+
+                # for l2 prediction
+                l2_printing_list = []
+                tmp_featurizer_list = torch.nn.functional.softmax(self.featurizer(feats), dim=1)
+
+                change_idx = []
+                index_cls = 0
+                pdist = torch.nn.PairwiseDistance(p=2)
+                for single_featurized_feat in feats:
+                    if len(self.bef_feat) != 0:
+                        if(float(torch.sum(pdist(single_featurized_feat, self.bef_feat[0])))>3):
+                            change_idx.append(index_cls)
+                        self.l2_dist_list.append(float(torch.sum(pdist(single_featurized_feat, self.bef_feat[0]))))
+                        self.bef_feat[0] = single_featurized_feat
+                    else:
+                        self.bef_feat.append(single_featurized_feat)
+                    index_cls += 1
+
+                bef_idx = 0
+                change_idx.append(-1)
+
+                for i in raw_y_pred:
+                    self.entropy.append(float(self.Entropy(i.unsqueeze(0))))
+
+                y_pred = raw_y_pred.argmax(-1)
+
+                for idx in change_idx:
+                    max_idx, max_2nd_idx = self.pred_counter(y_pred[bef_idx:idx])
+                    if self.bef_gt_cls != y_pred[bef_idx]:
+                        if self.bef_cls == max_idx and max_idx != max_2nd_idx:
+                            max_idx = max_2nd_idx
+                        else:
+                            y_revised_pred = self.pred_revision(y_pred[bef_idx:idx], torch.argsort(raw_y_pred)[bef_idx:idx], max_idx)
+                            max_idx, _ = self.pred_counter(y_revised_pred)
+
+                    self.bef_cls = max_idx
+                    self.bef_gt_cls = cls[bef_idx]
+                    y_pred[bef_idx:idx] = torch.zeros_like(y_pred[bef_idx:idx]) + torch.tensor(
+                        max_idx)
+                    bef_idx = idx
+
+                if 'gt' in conf.args.method:
+                    gt, _ = self.pred_counter(cls)
+                    y_pred = torch.zeros_like(y_pred) + torch.tensor(gt)
+
+            elif conf.args.method == 'LAME':
+                y_pred = self.batch_evaluation(feats).argmax(-1)
+
             elif conf.args.method == 'T3A':
-                # assert(len(feats) == 1)
                 z = self.featurizer(feats)
-
-                if conf.args.model == 'wideresnet28-10': #rest operations not in the model.modules()
-                    z = torch.nn.functional.avg_pool2d(z, 8)
-                    z = z.view(-1, 640)
-
                 y_pred = self.batch_evaluation(z)
-                # print(y_pred)
-
-            elif conf.args.method == 'COTTA':
-                x = feats
-                anchor_prob = torch.nn.functional.softmax(self.net_anchor(x), dim=1).max(1)[0]
-                standard_ema = self.net_ema(x)
-
-                N = 32
-                outputs_emas = []
-
-                # Threshold choice discussed in supplementary
-                # enable data augmentation for vision datasets
-                if anchor_prob.mean(0) < self.ap:
-                    for i in range(N):
-                        outputs_ = self.net_ema(self.transform(x)).detach()
-                        outputs_emas.append(outputs_)
-                    outputs_ema = torch.stack(outputs_emas).mean(0)
-                else:
-                    outputs_ema = standard_ema
-                y_pred=outputs_ema
-                y_pred = y_pred.max(1, keepdim=False)[1]
-
-            ###################### SAVE RESULT
-            # get lists from json
 
             try:
                 true_cls_list = self.json['gt']
                 pred_cls_list = self.json['pred']
                 accuracy_list = self.json['accuracy']
                 f1_macro_list = self.json['f1_macro']
-                distance_l2_list = self.json['distance_l2']
             except KeyError:
                 true_cls_list = []
                 pred_cls_list = []
                 accuracy_list = []
                 f1_macro_list = []
-                distance_l2_list = []
 
             # append values to lists
             true_cls_list += [int(c) for c in cl_labels]
@@ -826,12 +670,6 @@ class DNN():
             accuracy_list.append(cumul_accuracy)
             f1_macro_list.append(f1_score(true_cls_list, pred_cls_list,
                                           average='macro'))
-            # Weighted: "A Novel Distribution-Embedded Neural Network for Sensor-Based Activity Recognition" -
-            # https://towardsdatascience.com/micro-macro-weighted-averages-of-f1-score-clearly-explained-b603420b292f
-            # "In general, if you are working with an imbalanced dataset where all classes are equally important, using the macro average would be a good choice as it treats all classes equally."
-            # "If you have an imbalanced dataset but want to assign greater contribution to classes with more examples in the dataset, then the weighted average is preferred."
-
-            # epoch: 1~len(self.target_train_set[0])
             progress_checkpoint = [int(i * (len(self.target_train_set[0]) / 100.0)) for i in range(1, 101)]
             for i in range(epoch + 1 - len(current_samples[0]), epoch + 1):  # consider a batch input
                 if i in progress_checkpoint:
@@ -843,10 +681,8 @@ class DNN():
                 'pred': pred_cls_list,
                 'accuracy': accuracy_list,
                 'f1_macro': f1_macro_list,
-                'distance_l2': distance_l2_list,
             }
-
-            # self.tensorboard.log_scalar(condition + '/online_accuracy', cumul_accuracy, epoch)
+            self.tensorboard.log_scalar(condition + '/online_accuracy', cumul_accuracy, epoch)
 
         return cumul_accuracy, class_loss_of_test_data, class_cm_test_data
 
@@ -860,10 +696,6 @@ class DNN():
                 current_sample = feats[num_sample:num_sample+conf.args.opt['batch_size']], cls[num_sample:num_sample+conf.args.opt['batch_size']], dls[num_sample:num_sample+conf.args.opt['batch_size']]
                 self.evaluation_online(num_sample + conf.args.opt['batch_size'], '',
                                        [list(current_sample[0]), list(current_sample[1]), list(current_sample[2])])
-                # current_sample = feats[num_sample:num_sample + 10], cls[num_sample:num_sample + 10], dls[
-                #                                                                                      num_sample:num_sample + 10]
-                # self.evaluation_online(num_sample + 1, '',
-                #                                               [current_sample[0], current_sample[1], current_sample[2]])
 
         # logging json files
         json_file = open(self.write_path + 'online_eval.json', 'w')
@@ -897,3 +729,26 @@ class DNN():
         self.logger('f1', self.previous_test_f1, epoch, 'test')
         # self.logger('auroc', self.previous_test_macro_roc_auc_ovo, epoch, 'test')
 
+    def Entropy(self, input_):
+        epsilon = 1e-5
+        entropy = -input_ * torch.log(input_ + epsilon)
+        entropy = torch.sum(entropy, dim=1)
+        return entropy
+
+    def pred_counter(self, pred_list):
+        pred_counter = [0 for i in range(conf.args.opt['num_class'])]
+        for pred_cls in pred_list:
+            pred_counter[pred_cls] += 1
+        pred_counter_idx = np.argsort(pred_counter)
+        return pred_counter_idx[-1], pred_counter_idx[-2]
+
+    def pred_revision(self, argfirst_list, rest_list, avoiding_class):
+        new_list = []
+        for i in range(len(argfirst_list)):
+            if argfirst_list[i] == avoiding_class:
+                idx = -2
+                new_list.append(rest_list[i][idx])
+            else:
+                idx = -1
+                new_list.append(rest_list[i][idx])
+        return new_list

@@ -47,50 +47,6 @@ def to_json(o, level=0, indent=3, space=" ", newline="\n"):
         raise TypeError("Unknown type '%s' for json serialization" % str(type(o)))
     return ret
 
-
-def log_sequence_stats(dirichlet_numchunks, sequence_stats):
-    if conf.args.dataset == 'cifar10':
-        color_map = {
-            0: 'tomato',
-            1: 'sandybrown',
-            2: 'gold',
-            3: 'forestgreen',
-            4: 'aquamarine',
-            5: 'royalblue',
-            6: 'blueviolet',
-            7: 'lightpink',
-            8: 'darkgrey',
-            9: 'saddlebrown'
-        }
-
-    # print(sequence_stats)
-
-    plt.figure(figsize=(10,2), dpi=200)
-    plt.ylim(-0.5, 0.5)
-    plt.xlim(0, 10000)
-    for i, seq in tqdm.tqdm(enumerate(sequence_stats), total=len(sequence_stats)):
-        plt.barh(range(1), 1, height=0.1, left=i, color=color_map[seq])
-    if conf.args.shuffle_instances:
-        title = conf.args.dataset + "_shuffle_instances_"
-    else:
-        title = conf.args.dataset + "_shuffle_classes_"
-    title += str(dirichlet_numchunks) + "chunks_beta" + str(conf.args.dirichlet_beta)
-    plt.title(title)
-    fname = title + ".png"
-    plt.savefig(fname, dpi=200)
-
-def log_dirichlet_data_stats(dirichlet_numchunks, cl_labels, idx_batch, idx_batch_cls):
-    chunk_dataidx_map = {}
-    for j in range(dirichlet_numchunks):
-        chunk_dataidx_map[j] = idx_batch[j]
-    chunk_cls_counts = {}
-    for chunk_i, dataidx in chunk_dataidx_map.items():
-        unq, unq_cnt = np.unique(cl_labels[dataidx], return_counts=True)
-        tmp = {unq[i]: unq_cnt[i] for i in range(len(unq))}
-        chunk_cls_counts[chunk_i] = tmp
-    print("DIRICHLET STATS")
-    print('Data statistics: %s' % str(chunk_cls_counts))
-
 class LogBNStats:
     def __init__(self, write_path, num_bn_layers):
         self.write_path = write_path
@@ -154,11 +110,4 @@ class LogBNStats:
         pickle.dump(self.json, pickle_file)
         pickle_file.close()
         print("saving pickle complete")
-
-        # saving the file as string json takes excruciating amount of time
-        # json_file = open(self.write_path + 'logbnstats.json', 'w')
-        # json.dump(self.total_list, json_file)
-        # json_file.close()
-        # print("saving json complete")
-
 

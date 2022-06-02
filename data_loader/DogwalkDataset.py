@@ -7,14 +7,25 @@ import sys
 sys.path.append('..')
 import conf
 
-opt = conf.DogwalkOpt
+if conf.args.dataset == 'dogwalk':
+    opt = conf.DogwalkOpt
+elif conf.args.dataset == 'dogwalk_win100':
+    opt = conf.Dogwalk_WIN100_Opt
+elif conf.args.dataset == 'dogwalk_all':
+    opt = conf.DogwalkAllOpt
+elif conf.args.dataset == 'dogwalk_all_win100':
+    opt = conf.DogwalkAll_WIN100_Opt
+elif conf.args.dataset == 'dogwalk_all_win5':
+    opt = conf.DogwalkAll_WIN5_Opt
+
 WIN_LEN = opt['seq_len']
+DOMAIN_LOC = opt['domain_loc']
+CLASS_LOC = opt['class_loc']
 
 
 class KSHOTTensorDataset(torch.utils.data.Dataset):
     def __init__(self, num_classes, features, classes, domains):
         assert (features.shape[0] == classes.shape[0] == domains.shape[0])
-        print(f'winlen is : {WIN_LEN}')
         self.num_classes = num_classes
         self.features_per_class = []
         self.classes_per_class = []
@@ -58,7 +69,7 @@ class KSHOTTensorDataset(torch.utils.data.Dataset):
 class DogwalkDataset(torch.utils.data.Dataset):
     # load static files
 
-    def __init__(self, file='../dataset/ichar/minmax_scaling_all.csv',
+    def __init__(self, file='../dataset/dog_walk_winsize_5_train_valid_split_std_acc.csv',
                  domains=None, activities=None,
                  max_source=100):
         """
@@ -106,13 +117,10 @@ class DogwalkDataset(torch.utils.data.Dataset):
         self.kshot_datasets = []  # list of dataset per each domain
 
         for idx in range(max(len(self.df) // WIN_LEN, 0)):
-            domain = self.df.iloc[idx * WIN_LEN, 5]
-            class_label = self.df.iloc[idx * WIN_LEN, 4]
+            domain = self.df.iloc[idx * WIN_LEN, DOMAIN_LOC]
+            class_label = self.df.iloc[idx * WIN_LEN, CLASS_LOC]
             domain_label = self.domains.index(domain)
-            feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 1:4].values
-            # feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 0:54].values
-            # feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 0:72].values
-            # feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 0:90].values
+            feature = self.df.iloc[idx * WIN_LEN:(idx + 1) * WIN_LEN, 1:CLASS_LOC].values
             feature = feature.T
 
             self.features.append(feature)
