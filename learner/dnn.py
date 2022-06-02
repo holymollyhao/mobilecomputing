@@ -105,7 +105,6 @@ class DNN():
         self.bef_gt_cls = -10
         self.bef_feat_list = l2_distance_list(32)
         self.bef_feat = []
-        self.l2_dist_list = []
 
     def freeze_bn(self): #TODO: what is this?
         for m in self.net.modules():
@@ -572,9 +571,8 @@ class DNN():
                 pdist = torch.nn.PairwiseDistance(p=2)
                 for single_featurized_feat in feats:
                     if len(self.bef_feat) != 0:
-                        if(float(torch.sum(pdist(single_featurized_feat, self.bef_feat[0])))>3):
+                        if(float(torch.sum(pdist(single_featurized_feat, self.bef_feat[0])))>0.8):
                             change_idx.append(index_cls)
-                        self.l2_dist_list.append(float(torch.sum(pdist(single_featurized_feat, self.bef_feat[0]))))
                         self.bef_feat[0] = single_featurized_feat
                     else:
                         self.bef_feat.append(single_featurized_feat)
